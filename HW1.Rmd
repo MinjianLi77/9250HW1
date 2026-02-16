@@ -1,0 +1,656 @@
+---
+title: "STAT 9250 - Homework 1"
+author: "Your Name"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+## Problem 1
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 8,
+  fig.height = 4.8
+)
+
+library(ggplot2)
+library(maps)
+library(Matrix)
+set.seed(123)
+
+inv_direct <- function(K, sigma) {
+  N <- nrow(K)
+  Sigma <- sigma * diag(N) + K %*% t(K)
+  solve(Sigma)
+}
+
+
+inv_smw <- function(K, sigma) {
+  N <- nrow(K)
+  M <- ncol(K)
+  
+  G <- crossprod(K)                    # K^T K
+  B <- diag(M) + (1/sigma) * G
+  Binv <- solve(B)
+  
+  (1/sigma) * diag(N) - (1/sigma^2) * (K %*% Binv %*% t(K))
+}
+
+sigma <- 0.2
+M <- 10
+
+flops_direct <- function(N) {
+  (1/3) * N^3
+}
+
+flops_smw <- function(N, M) {
+  2*N*M^2 + (1/3)*M^3 + 2*N*M^2 + 2*N^2*M
+}
+```
+
+```{r}
+N_grid <- c(200, 400, 600, 800, 1000, 1200, 1500)
+B_reps <- 3
+
+results <- data.frame(
+  N = N_grid,
+  time_direct = NA,
+  time_smw = NA,
+  flops_direct = flops_direct(N_grid),
+  flops_smw = flops_smw(N_grid, M),
+  rel_error = NA
+)
+
+for (i in seq_along(N_grid)) {
+  
+  N <- N_grid[i]
+  cat("Running N =", N, "\n")
+  
+  K <- matrix(rnorm(N*M), nrow = N)
+  
+  # ---- Direct timing ----
+  t1 <- replicate(B_reps, {
+    system.time(inv_direct(K, sigma))["elapsed"]
+  })
+  results$time_direct[i] <- median(t1)
+  
+  # ---- SMW timing ----
+  t2 <- replicate(B_reps, {
+    system.time(inv_smw(K, sigma))["elapsed"]
+  })
+  results$time_smw[i] <- median(t2)
+  
+  # ---- Accuracy check ----
+  A1 <- inv_direct(K, sigma)
+  A2 <- inv_smw(K, sigma)
+  
+  results$rel_error[i] <- 
+    norm(A1 - A2, "F") / norm(A1, "F")
+}
+
+results
+
+
+plot(results$N, results$time_direct,
+     type="b", pch=19,
+     xlab="N",
+     ylab="Time (seconds)",
+     main="CPU Time vs N")
+lines(results$N, results$time_smw,
+      type="b", pch=19)
+legend("topleft",
+       legend=c("Direct inversion",
+                "SMW inversion"),
+       lty=1, pch=19)
+
+plot(results$N,
+     results$flops_direct,
+     type="b", pch=19,
+     log="y",
+     xlab="N",
+     ylab="FLOPs (log scale)",
+     main="FLOPs vs N")
+lines(results$N,
+      results$flops_smw,
+      type="b", pch=19)
+legend("topleft",
+       legend=c("Direct ~ (1/3)N^3",
+                "SMW"),
+       lty=1, pch=19)
+
+```
+
+
+The computational results clearly show a dramatic difference in growth rates between the two methods.
+
+The direct inversion method exhibits approximately cubic growth in $N$. For example, when $N$ increases from 200 to 1500, the computation time increases from 0.02 seconds to 5.12 seconds. This rapid increase is consistent with the theoretical complexity of $O(N^3)$.
+
+In contrast, the SMW method remains extremely fast across all values of $N$. Even at $N=1500$, the computation time is only 0.03 seconds. The growth rate is much slower and appears close to linear or quadratic, which aligns with the theoretical complexity derived from the Woodbury identity.
+
+This confirms that exploiting the low-rank structure of $KK^T$ provides substantial computational savings when $M \ll N$.
+
+
+## Problem 2
+
+
+
+```{r}
+
+# CHANGE THIS PATH to where Temp_data.RData lives
+load("Temp_data.RData")
+
+# Try to detect object names robustly
+obj_names <- ls()
+obj_names
+
+# Assume these names (adjust if your .RData uses different ones)
+y <- get(if ("Temp_UB" %in% obj_names) "Temp_UB" else if ("TempUB" %in% obj_names) "TempUB" else "y")
+Xmat <- get(if ("Xmat" %in% obj_names) "Xmat" else "Xmat")
+stations <- get(if ("stations" %in% obj_names) "stations" else "stations")
+
+n <- nrow(Xmat); p <- ncol(Xmat)
+cat("n =", n, "p =", p, "\n")
+summary(y)
+str(stations)
+
+
+plot_basis <- function(basis_num, cap = 0.15) {
+  ggplot(stations) +
+    geom_point(aes(x = lon, y = lat, col = Xmat[, basis_num]), size = 0.7) +
+    geom_path(
+      data = map_data("world"),
+      aes(x = long, y = lat, group = group),
+      color = "gray", linewidth = 0.2, alpha = 0.5
+    ) +
+    scale_color_gradientn(
+      colours = terrain.colors(10),
+      name = paste0("Basis #", basis_num),
+      na.value = "transparent",
+      limits = c(0, cap)
+    ) +
+    coord_fixed(1.3) +
+    theme_bw() +
+    labs(x = "lon", y = "lat")
+}
+
+b1 <- 100
+b2 <- 2000
+
+plot_basis(b1)
+plot_basis(b2)
+
+
+
+
+
+XtX <- crossprod(Xmat)  # t(X)%*%X
+dim(XtX)
+
+res_try <- tryCatch(
+  {
+    solve(XtX)
+    "solve(XtX) succeeded (no error)."
+  },
+  error = function(e) paste("ERROR:", e$message),
+  warning = function(w) paste("WARNING:", w$message)
+)
+res_try
+
+
+
+eig_XtX <- eigen(XtX, symmetric = TRUE)
+
+# eigen() returns values in decreasing order for symmetric matrices (usually).
+lambda <- pmax(eig_XtX$values, 0)
+s <- sqrt(lambda)
+
+plot(s, type = "b", pch = 20, xlab = "index", ylab = "singular value")
+plot(log(s + 1e-300), type = "b", pch = 20, xlab = "index", ylab = "log singular value")
+
+
+V <- eig_XtX$vectors
+Xty <- crossprod(Xmat, y) # t(X) y
+
+# safe division: avoid dividing by 0 exactly
+eps <- .Machine$double.eps
+inv_lambda <- ifelse(lambda > eps, 1 / lambda, 0)
+
+beta_svd <- V %*% (inv_lambda * (t(V) %*% Xty))
+beta_svd <- as.numeric(beta_svd)
+
+summary(beta_svd)
+
+yhat_svd <- as.numeric(Xmat %*% beta_svd)
+rmse_svd <- sqrt(mean((y - yhat_svd)^2))
+cat("RMSE (svd pseudo-inverse) =", rmse_svd, "\n")
+
+stations$y_obs <- y
+stations$yhat_svd <- yhat_svd
+
+p_obs <- ggplot(stations) +
+  geom_point(aes(lon, lat, col = y_obs), size = 0.7) +
+  geom_path(data = map_data("world"),
+            aes(long, lat, group = group),
+            color="gray", linewidth=0.2, alpha=0.5) +
+  scale_color_gradientn(colours = terrain.colors(10), name = "Upper bound (°C)") +
+  coord_fixed(1.3) + theme_bw() + labs(x="lon", y="lat", title="Observed Temp UB")
+
+p_rec <- ggplot(stations) +
+  geom_point(aes(lon, lat, col = yhat_svd), size = 0.7) +
+  geom_path(data = map_data("world"),
+            aes(long, lat, group = group),
+            color="gray", linewidth=0.2, alpha=0.5) +
+  scale_color_gradientn(colours = terrain.colors(10), name = "Temp basis representation") +
+  coord_fixed(1.3) + theme_bw() + labs(x="lon", y="lat", title="Reconstruction X beta_hat_svd")
+
+p_obs
+p_rec
+
+
+
+resid_svd <- y - yhat_svd
+
+par(mfrow = c(1,2))
+hist(beta_svd, breaks = 80, main = expression("Histogram of " * hat(beta)[svd]), xlab = "beta")
+hist(resid_svd, breaks = 80, main = "Histogram of residuals (y - X beta)", xlab = "residual")
+par(mfrow = c(1,1))
+
+
+
+tau_default <- max(s) * max(n, p) * .Machine$double.eps
+tau_default
+
+
+tau <- tau_default
+cat("Using tau =", tau, "\n")
+
+keep <- (s >= tau) & (lambda > 0)
+inv_lambda_trunc <- ifelse(keep, 1 / lambda, 0)
+
+beta_tau <- V %*% (inv_lambda_trunc * (t(V) %*% Xty))
+beta_tau <- as.numeric(beta_tau)
+
+summary(beta_tau)
+
+par(mfrow = c(1,2))
+hist(beta_svd, breaks = 80, main = expression(hat(beta)[svd]), xlab = "beta")
+hist(beta_tau, breaks = 80, main = expression(hat(beta)[tau]), xlab = "beta")
+par(mfrow = c(1,1))
+
+
+yhat_tau <- as.numeric(Xmat %*% beta_tau)
+rmse_tau <- sqrt(mean((y - yhat_tau)^2))
+cat("RMSE (truncated) =", rmse_tau, "\n")
+
+stations$yhat_tau <- yhat_tau
+
+p_rec_tau <- ggplot(stations) +
+  geom_point(aes(lon, lat, col = yhat_tau), size = 0.7) +
+  geom_path(data = map_data("world"),
+            aes(long, lat, group = group),
+            color="gray", linewidth=0.2, alpha=0.5) +
+  scale_color_gradientn(colours = terrain.colors(10), name = "Temp basis representation") +
+  coord_fixed(1.3) + theme_bw() + labs(x="lon", y="lat", title="Reconstruction X beta_hat_tau (truncated SVD)")
+
+p_rec_tau
+
+
+ridge_beta <- function(lambda_ridge) {
+  w <- 1 / (lambda + lambda_ridge)   # lambda here = eigenvalues of XtX
+  b <- V %*% (w * (t(V) %*% Xty))
+  as.numeric(b)
+}
+
+lams <- c(1e-6, 1e-4, 1e-2, 1, 10)
+out <- data.frame(lambda = lams, RMSE = NA_real_, maxAbsBeta = NA_real_)
+
+for (i in seq_along(lams)) {
+  b <- ridge_beta(lams[i])
+  yhat <- as.numeric(Xmat %*% b)
+  out$RMSE[i] <- sqrt(mean((y - yhat)^2))
+  out$maxAbsBeta[i] <- max(abs(b))
+}
+out
+
+
+```
+```{r}
+
+
+#clear everything in memory
+rm(list=ls(all=TRUE));
+options(max.print=999999)
+
+#Set working directory 
+setwd("C:/Users/18835/iCloudDrive/9250")
+
+#Problem 3
+#Simple simulation study
+
+set.seed(123)
+
+alpha0 <- 3
+beta0  <- 7
+
+n_grid <- c(20, 30, 50, 100, 200, 500, 1000)
+R <- 5000  # Monte Carlo replications (adjust if needed)
+
+#MM estimator
+mm_gamma <- function(x) {
+  m <- mean(x)
+  s2 <- var(x)
+  alpha_hat <- m^2 / s2
+  beta_hat  <- s2 / m
+  c(alpha = alpha_hat, beta = beta_hat)
+}
+
+#MLE estimator
+mle_gamma <- function(x) {
+  m <- mean(x)
+  meanlog <- mean(log(x))
+  rhs <- log(m) - meanlog 
+  
+  #Function whose root gives alpha: log(a) - digamma(a) - rhs = 0
+  f <- function(a) log(a) - digamma(a) - rhs
+  
+  #Using MM as rough initial scale for bracketing
+  mm <- mm_gamma(x)
+  a0 <- mm["alpha"]
+  
+  #Robust bracketing for uniroot
+  lower <- max(1e-6, a0 / 10)
+  upper <- a0 * 10 + 10
+  
+    #A few expansions
+  for (k in 1:10) {
+    if (is.finite(f(lower)) && is.finite(f(upper)) && f(lower) * f(upper) < 0) break
+    upper <- upper * 2
+  }
+  
+  #If not bracketed, back to a generic wide bracket
+  if (!(is.finite(f(lower)) && is.finite(f(upper)) && f(lower) * f(upper) < 0)) {
+    lower <- 1e-6
+    upper <- 1e4
+  }
+  
+  alpha_hat <- uniroot(f, lower = lower, upper = upper, tol = 1e-10)$root
+  beta_hat  <- m / alpha_hat
+  
+  c(alpha = alpha_hat, beta = beta_hat)
+}
+
+#simulation for one n
+simulate_one_n <- function(n, R, alpha0, beta0) {
+  out <- matrix(NA_real_, nrow = R, ncol = 4)
+  colnames(out) <- c("alpha_mm", "beta_mm", "alpha_mle", "beta_mle")
+  
+  for (r in 1:R) {
+    x <- rgamma(n, shape = alpha0, scale = beta0)
+    
+    mm <- mm_gamma(x)
+    mle <- mle_gamma(x)
+    
+    out[r, ] <- c(mm["alpha"], mm["beta"], mle["alpha"], mle["beta"])
+  }
+  out
+}
+
+#Computing bias and MSE
+summarize_bias_mse <- function(estimates, true_alpha, true_beta) {
+  alpha_mm <- estimates[, "alpha_mm"]
+  beta_mm  <- estimates[, "beta_mm"]
+  alpha_mle <- estimates[, "alpha_mle"]
+  beta_mle  <- estimates[, "beta_mle"]
+  
+  data.frame(
+    method = rep(c("MM","MLE"), each = 2),
+    param  = rep(c("alpha","beta"), times = 2),
+    bias   = c(mean(alpha_mm) - true_alpha,
+               mean(beta_mm)  - true_beta,
+               mean(alpha_mle) - true_alpha,
+               mean(beta_mle)  - true_beta),
+    mse    = c(mean((alpha_mm - true_alpha)^2),
+               mean((beta_mm  - true_beta)^2),
+               mean((alpha_mle - true_alpha)^2),
+               mean((beta_mle  - true_beta)^2))
+  )
+}
+
+
+#looping over n
+results_list <- vector("list", length(n_grid))
+
+for (i in seq_along(n_grid)) {
+  n <- n_grid[i]
+  est <- simulate_one_n(n, R, alpha0, beta0)
+  summ <- summarize_bias_mse(est, alpha0, beta0)
+  summ$n <- n
+  results_list[[i]] <- summ
+}
+
+results <- do.call(rbind, results_list)
+
+#Plotting bias and MSE using ggplot
+library(ggplot2)
+
+results$method <- factor(results$method, levels = c("MM", "MLE"))
+results$param  <- factor(results$param,  levels = c("alpha", "beta"))
+
+#Bias plots
+p_bias <- ggplot(results, aes(x = n, y = bias, color = method)) +
+  geom_line() +
+  geom_point(size = 2) +
+  scale_x_log10() +
+  facet_wrap(~ param, scales = "free_y", ncol = 2,
+             labeller = as_labeller(c(alpha = "Bias of α", beta = "Bias of β"))) +
+  labs(x = "n (log scale)", y = "Bias", color = "Estimator") +
+  theme_minimal()
+
+p_bias
+
+#MSE plots
+p_mse <- ggplot(results, aes(x = n, y = mse, color = method)) +
+  geom_line() +
+  geom_point(size = 2) +
+  scale_x_log10() +
+  scale_y_log10() +
+  facet_wrap(~ param, scales = "free_y", ncol = 2,
+             labeller = as_labeller(c(alpha = "MSE of α", beta = "MSE of β"))) +
+  labs(x = "n (log scale)", y = "MSE (log scale)", color = "Estimator") +
+  theme_minimal()
+
+p_mse
+
+
+
+
+```
+
+
+
+```{r}
+
+#clear everything in memory
+rm(list=ls(all=TRUE));
+options(max.print=999999)
+
+#Set working directory 
+setwd("C:/Users/18835/iCloudDrive/9250")
+
+#Problem 4
+#Monte Carlo methods for random matrices
+
+#Prob 4.1
+
+library(ggplot2)
+
+set.seed(1)
+
+mc_trace <- function(m, N) {
+    tr_vals <- replicate(N, {
+    R <- matrix(rnorm(m*m), m, m)
+    sum(R^2)
+  })
+  mu_hat <- mean(tr_vals)
+  mcse   <- sd(tr_vals) / sqrt(N)
+  list(values = tr_vals, mean = mu_hat, mcse = mcse)
+}
+
+N_trace_100  <- 2000
+N_trace_1000 <- 300   #smaller because m^2 draws per replicate
+
+res_tr_100  <- mc_trace(m = 100,  N = N_trace_100)
+res_tr_1000 <- mc_trace(m = 1000, N = N_trace_1000)
+
+cat("Part (1): E[tr(Sigma)] = m^2 analytically.\n")
+cat("m=100  : theory=", 100^2,  " MC mean=", res_tr_100$mean,
+    " MCSE=", res_tr_100$mcse, "\n")
+cat("m=1000 : theory=", 1000^2, " MC mean=", res_tr_1000$mean,
+    " MCSE=", res_tr_1000$mcse, "\n")
+
+df_tr <- rbind(
+  data.frame(m = "100",  tr = res_tr_100$values),
+  data.frame(m = "1000", tr = res_tr_1000$values)
+)
+
+ggplot(df_tr, aes(x = tr)) +
+  geom_density() +
+  facet_wrap(~ m, scales = "free") +
+  labs(title = "Approximate density of trace(Sigma) where Sigma = R R^T",
+       x = "trace(Sigma)", y = "Density") +
+  theme_minimal()
+
+#Prob 4.2
+
+power_lambda1 <- function(R, n_iter = 30) {
+  m <- nrow(R)
+  v <- rnorm(m)
+  v <- v / sqrt(sum(v^2))
+  
+  for (k in 1:n_iter) {
+    w <- R %*% (t(R) %*% v)
+    v <- w / sqrt(sum(w^2))
+  }
+  as.numeric(crossprod(t(R) %*% v))
+}
+
+mc_lambda1 <- function(m, N, n_iter = 30) {
+  lam_vals <- replicate(N, {
+    R <- matrix(rnorm(m*m), m, m)
+    power_lambda1(R, n_iter = n_iter)
+  })
+  mu_hat <- mean(lam_vals)
+  mcse   <- sd(lam_vals) / sqrt(N)
+  list(values = lam_vals, mean = mu_hat, mcse = mcse)
+}
+
+set.seed(2)
+
+N_lam_100  <- 500
+N_lam_1000 <- 60
+
+res_lam_100  <- mc_lambda1(m=100,  N=N_lam_100,  n_iter=40)
+res_lam_1000 <- mc_lambda1(m=1000, N=N_lam_1000, n_iter=60)
+
+cat("Part (2): Largest eigenvalue Monte Carlo summaries\n")
+cat("m=100  : MC mean=", res_lam_100$mean,  " MCSE=", res_lam_100$mcse,  "\n")
+cat("m=1000 : MC mean=", res_lam_1000$mean, " MCSE=", res_lam_1000$mcse, "\n")
+
+df_lam <- rbind(
+  data.frame(m="100",  lambda1 = res_lam_100$values),
+  data.frame(m="1000", lambda1 = res_lam_1000$values)
+)
+
+ggplot(df_lam, aes(x = lambda1)) +
+  geom_density() +
+  facet_wrap(~ m, scales = "free") +
+  labs(title = "Approximate density of largest eigenvalue of Sigma = R R^T",
+       x = expression(lambda[1](Sigma)), y = "Density") +
+  theme_minimal()
+
+#Prob 4.3
+
+set.seed(3)
+
+m_grid <- c(20, 50, 100, 200, 400, 600, 800, 1000)
+
+# sample sizes per m (increase for small m, decrease for large m)
+N_by_m <- ifelse(m_grid <= 100, 300,
+                 ifelse(m_grid <= 400, 120, 50))
+
+iters_by_m <- ifelse(m_grid <= 100, 40,
+                     ifelse(m_grid <= 400, 50, 60))
+
+summ <- lapply(seq_along(m_grid), function(i) {
+  m <- m_grid[i]
+  N <- N_by_m[i]
+  it <- iters_by_m[i]
+  res <- mc_lambda1(m = m, N = N, n_iter = it)
+  data.frame(m = m, N = N, n_iter = it, Ehat = res$mean, MCSE = res$mcse)
+})
+
+df_E <- do.call(rbind, summ)
+
+print(df_E)
+
+ggplot(df_E, aes(x = m, y = Ehat)) +
+  geom_line() +
+  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = Ehat - 1.96*MCSE, ymax = Ehat + 1.96*MCSE),
+                width = 0) +
+  labs(title = expression(paste("Estimated ", E[lambda[1](Sigma)], " versus m")),
+       x = "m", y = expression(hat(E)[lambda[1]])) +
+  theme_minimal()
+
+
+
+```
+
+
+```{r}
+#clear everything in memory
+rm(list=ls(all=TRUE));
+options(max.print=999999)
+
+#Set working directory 
+setwd("C:/Users/18835/iCloudDrive/9250")
+
+#Problem 5
+
+#Code optimization & parallel computing
+
+#lookup table once
+lut <- -cos(2 * (0:255))
+
+myfunc_opt <- function(v_s, i_v, iter) {
+  # d_val depends only on i
+  d_val <- as.integer(round(i_v %% 256))  
+  trig  <- lut[d_val + 1L]
+  scale <- trig / cos(iter)
+  v_s * scale
+}
+
+
+N1 <- 1e3; N2 <- 2e3; N_tot <- 64
+vi_v <- rep(NA, N1)
+vd_s <- matrix(NA, N1, N2)
+
+d_val <- as.integer(round(vi_v %% 256))
+trig  <- lut[d_val + 1L]
+rs    <- rowSums(vd_s)
+denom <- nrow(vd_s) * ncol(vd_s)
+
+
+#mean(res_mat) without res_mat
+Res_fast <- numeric(N_tot)
+
+ptm <- proc.time()
+for (iter in 1:N_tot) {
+  Res_fast[iter] <- sum(rs * trig) / (denom * cos(iter))
+}
+proc.time() - ptm
+```
