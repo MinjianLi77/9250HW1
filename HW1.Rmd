@@ -261,14 +261,11 @@ par(mfrow = c(1,1))
 
 
 
-tau_default <- max(s) * max(n, p) * .Machine$double.eps
-tau_default
-
-
-tau <- tau_default
+# ---- Choose tau based on elbow (1% of largest singular value)
+tau <- 0.01 * max(s)
 cat("Using tau =", tau, "\n")
 
-keep <- (s >= tau) & (lambda > 0)
+keep <- s >= tau
 inv_lambda_trunc <- ifelse(keep, 1 / lambda, 0)
 
 beta_tau <- V %*% (inv_lambda_trunc * (t(V) %*% Xty))
@@ -276,15 +273,25 @@ beta_tau <- as.numeric(beta_tau)
 
 summary(beta_tau)
 
+yhat_tau <- as.numeric(Xmat %*% beta_tau)
+rmse_tau <- sqrt(mean((y - yhat_tau)^2))
+cat("RMSE (truncated SVD) =", rmse_tau, "\n")
+
+cat("Max |beta_svd| =", max(abs(beta_svd)), "\n")
+cat("Max |beta_tau| =", max(abs(beta_tau)), "\n")
+
 par(mfrow = c(1,2))
 hist(beta_svd, breaks = 80, main = expression(hat(beta)[svd]), xlab = "beta")
 hist(beta_tau, breaks = 80, main = expression(hat(beta)[tau]), xlab = "beta")
 par(mfrow = c(1,1))
 
 
+
 yhat_tau <- as.numeric(Xmat %*% beta_tau)
 rmse_tau <- sqrt(mean((y - yhat_tau)^2))
 cat("RMSE (truncated) =", rmse_tau, "\n")
+
+
 
 stations$yhat_tau <- yhat_tau
 
@@ -318,6 +325,221 @@ out
 
 
 ```
+
+## Problem 2
+
+We are given a global dataset with temperature upper bounds evaluated at weather stations. Let
+$$
+y \in \mathbb{R}^n,\qquad X \in \mathbb{R}^{n\times p},
+$$
+where $y$ is the vector `Temp_UB` (upper bounds in $^\circ$C), and $X$ is the design matrix `Xmat` whose columns are localized spatial basis functions. In our data,
+$$
+n = 37511,\qquad p = 3535.
+$$
+
+
+
+
+### (1) Visualizing two basis functions
+
+I visualized two additional basis functions (e.g., Basis #100 and Basis #2000; see Figure P2-basis100 and Figure P2-basis2000). In both cases, the basis values are non-negligible only in a compact geographic neighborhood and are close to zero elsewhere. This confirms that each column of $X$ represents a spatially local “bump”.
+
+
+
+
+### (2) What does “local basis function” mean?
+
+A local basis function here is a spatially localized bump defined on station locations: it is large only near one region and nearly zero elsewhere. Figure 1 in the assignment (and my two additional plots) shows this locality clearly: each basis highlights a small geographic area rather than a global pattern. By combining many such local bumps through $X\beta$, we can represent complex spatial variation by adding up local contributions.
+
+
+
+### (3a) Why does $\left(X^\top X\right)^{-1}$ fail? 
+
+The ordinary least-squares projection onto $\mathcal{S}=\mathrm{span}(X)$ is
+$$
+\hat{y} = X\hat{\beta},\qquad \hat{\beta} = \left(X^\top X\right)^{-1}X^\top y.
+$$
+However, computing $\left(X^\top X\right)^{-1}$ using `solve(t(X)%*%X)` fails with a Lapack error indicating the system is exactly singular. In this context, “singular” means that $X^\top X$ is not invertible because $X$ does not have full column rank: there exist nontrivial linear dependencies among the columns of $X$, implying at least one eigenvalue of $X^\top X$ is zero (or numerically indistinguishable from zero). Consequently, the inverse does not exist (or is extremely unstable), and the classical formula for $\hat{\beta}$ breaks down.
+
+
+
+
+### (3b) Singular values and ill-conditioning 
+
+Let the SVD be
+$$
+X = UDV^\top,\qquad D=\mathrm{diag}(\sigma_1,\ldots,\sigma_p),\quad \sigma_1\ge\cdots\ge\sigma_p\ge 0.
+$$
+The singular value plot (Figure P2-sigma) shows a rapid decay followed by a long tail approaching near-zero values. The log-scale plot (Figure P2-logsigma) indicates that many $\sigma_i$ are extremely small, consistent with the singularity/ill-conditioning of $X^\top X$. Tiny singular values cause instability in inverse problems because pseudoinverse-type solutions involve factors $1/\sigma_i$: when $\sigma_i$ is close to zero, $1/\sigma_i$ becomes huge and amplifies noise and numerical errors along the corresponding directions.
+
+
+
+
+### (4) SVD pseudoinverse solution and reconstruction 
+
+Using SVD, the Moore–Penrose pseudoinverse is
+$$
+X^+ = V D^+ U^\top,\qquad D^+ = \mathrm{diag}\left(\frac{1}{\sigma_i}\right),
+$$
+(where $\frac{1}{\sigma_i}$ is treated as $0$ when $\sigma_i=0$). The SVD-based coefficient estimate is
+$$
+\hat{\beta}_{\mathrm{svd}} = X^+y = V D^+ U^\top y.
+$$
+The reconstruction is then
+$$
+\hat{y}_{\mathrm{svd}} = X\hat{\beta}_{\mathrm{svd}},
+$$
+and in our output the RMSE is approximately
+$$
+\mathrm{RMSE} = \sqrt{\frac{1}{n}\sum_{i=1}^n \left(y_i-\hat{y}_{\mathrm{svd},i}\right)^2}\approx 2.49.
+$$
+Visually (Figure P2-obs vs Figure P2-recon-svd), the reconstructed field closely matches the large-scale spatial structure of the observed temperature upper bound field, while appearing slightly smoother in some regions. This smoothing is expected because the projection onto $\mathrm{span}(X)$ can suppress small-scale noise in the observational record.
+
+
+
+
+### (4b) Histograms of coefficients and residuals
+Let residuals be
+$$
+r = y-\hat{y}_{\mathrm{svd}}.
+$$
+The histogram of $\hat{\beta}_{\mathrm{svd}}$ (Figure P2-hist-beta) is sharply centered around zero with a noticeable tail, indicating most basis coefficients are small but some are moderate-to-large to represent key spatial patterns. The residual histogram (Figure P2-hist-resid) is centered near zero and relatively concentrated, consistent with a reconstruction that explains most of the variation in $y$.
+
+
+
+
+### (4c) Why can $\hat{\beta}$ have outliers while $X\hat{\beta}$ looks reasonable? 
+
+Large or outlying coefficients can occur because the inverse problem is ill-conditioned: components aligned with tiny singular values are weakly identifiable, and the pseudoinverse inflates them via $1/\sigma_i$. Importantly, many of these inflated directions correspond to near-null directions of $X$, so they can change $\hat{\beta}$ substantially while having limited impact on the reconstructed field $X\hat{\beta}$. Thus, it is possible for $X\hat{\beta}_{\mathrm{svd}}$ to look visually reasonable even when $\hat{\beta}_{\mathrm{svd}}$ contains extreme values.
+
+
+
+### (5) Truncated SVD
+
+To stabilize the pseudoinverse solution, we modify the inversion of small singular values.
+
+Recall that using the spectral decomposition
+$$
+X^\top X = V \Lambda V^\top,
+$$
+the pseudoinverse estimator can be written as
+$$
+\hat{\beta}_{\mathrm{svd}}
+=
+V \Lambda^+ V^\top X^\top y,
+$$
+where
+$$
+\Lambda^+_{ii} =
+\begin{cases}
+\frac{1}{\lambda_i}, & \lambda_i > 0, \\
+0, & \lambda_i = 0.
+\end{cases}
+$$
+
+When some eigenvalues $\lambda_i$ are very small, the terms
+$$
+\frac{1}{\lambda_i}
+$$
+become extremely large, leading to unstable and inflated coefficients.
+
+In truncated SVD, we introduce a threshold $\tau$ and define
+$$
+\Lambda^+_{\tau,ii} =
+\begin{cases}
+\frac{1}{\lambda_i}, & \lambda_i \ge \tau^2, \\
+0, & \lambda_i < \tau^2.
+\end{cases}
+$$
+
+Equivalently, using singular values $\sigma_i = \sqrt{\lambda_i}$, we remove directions where
+$$
+\sigma_i < \tau.
+$$
+
+Based on the elbow observed in the singular value decay plot, we choose
+$$
+\tau = 0.01 \times \max(\sigma_i).
+$$
+
+This removes weakly identifiable directions associated with near-zero singular values.
+
+Empirically, the reconstruction error
+$$
+\mathrm{RMSE}_\tau
+=
+\sqrt{
+\frac{1}{n}
+\sum_{i=1}^{n}
+\left(y_i - \hat{y}_{\tau,i}\right)^2
+}
+$$
+remains very close to the SVD solution, indicating that predictive accuracy is largely preserved.
+
+However, the distribution of coefficients changes substantially.  
+Compared to $\hat{\beta}_{\mathrm{svd}}$, the truncated estimator $\hat{\beta}_\tau$ exhibits noticeably smaller magnitude and reduced heavy tails in its histogram.
+
+At the same time, the reconstructed temperature field retains the main large-scale spatial structure.
+
+Therefore, truncated SVD improves numerical stability and coefficient regularity without materially degrading the reconstruction.
+
+
+
+
+
+### (6) Ridge Regularization
+
+Ridge regression solves the penalized least squares problem
+$$
+\hat{\beta}_\lambda
+=
+\arg\min_\beta
+\left\{
+\|y - X\beta\|_2^2
++
+\lambda \|\beta\|_2^2
+\right\}.
+$$
+
+Using the spectral decomposition of $X^\top X$, the solution can be written as
+$$
+\hat{\beta}_\lambda
+=
+V
+\mathrm{diag}
+\!\left(
+\frac{1}{\lambda_i + \lambda}
+\right)
+V^\top X^\top y.
+$$
+
+The shrinkage factor
+$$
+\frac{1}{\lambda_i + \lambda}
+$$
+reduces the influence of directions corresponding to small eigenvalues,
+thereby stabilizing the inverse problem.
+
+From the numerical results:
+
+- For very small $\lambda$ (e.g., $10^{-6}$ and $10^{-4}$),  
+  the RMSE remains essentially unchanged compared to the pseudoinverse solution,  
+  while the maximum absolute coefficient decreases noticeably.
+
+- At $\lambda = 10^{-2}$, the coefficient magnitude decreases substantially,  
+  with only a small increase in RMSE.
+
+- For larger $\lambda$ (e.g., $1$ and $10$),  
+  RMSE increases sharply, indicating oversmoothing and increased bias.
+
+These results illustrate the classical bias–variance tradeoff:
+increasing $\lambda$ improves numerical stability,
+but excessive regularization sacrifices predictive accuracy.
+
+
+
+
+## Problem 3
 ```{r}
 
 
@@ -471,7 +693,7 @@ p_mse
 ```
 
 
-
+## Problem 4
 ```{r}
 
 #clear everything in memory
@@ -610,7 +832,7 @@ ggplot(df_E, aes(x = m, y = Ehat)) +
 
 ```
 
-
+## Problem 5
 ```{r}
 #clear everything in memory
 rm(list=ls(all=TRUE));
