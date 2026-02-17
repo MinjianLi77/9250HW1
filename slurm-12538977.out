@@ -1,0 +1,104 @@
+### Starting at: Tue Feb 17 03:14:30 CST 2026 ###
+
+----------------------------------------------------------------------------
+  r: r/4.4.0
+----------------------------------------------------------------------------
+    Description:
+      R
+
+
+     Other possible modules matches:
+        admixture, altair/edem, altair/feko, amber, arcsi, aretomo3, ...
+
+    This module can be loaded directly: module load r/4.4.0
+
+----------------------------------------------------------------------------
+  To find other possible module matches execute:
+
+      $ module -r spider '.*r.*'
+
+
+ 
+
+Fatal error: you must specify '--save', '--no-save' or '--vanilla'
+Installing packages into ‘/cluster/pixstor/home/ssn2n/.R/lib/4.4.0’
+(as ‘lib’ is unspecified)
+trying URL 'https://cloud.r-project.org/src/contrib/foreach_1.5.2.tar.gz'
+Content type 'application/x-gzip' length 89758 bytes (87 KB)
+==================================================
+downloaded 87 KB
+
+trying URL 'https://cloud.r-project.org/src/contrib/doSNOW_1.0.20.tar.gz'
+Content type 'application/x-gzip' length 8085 bytes
+==================================================
+downloaded 8085 bytes
+
+* installing *source* package ‘foreach’ ...
+** package ‘foreach’ successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** demo
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** installing vignettes
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (foreach)
+* installing *source* package ‘doSNOW’ ...
+** package ‘doSNOW’ successfully unpacked and MD5 sums checked
+** using staged installation
+** R
+** inst
+** byte-compile and prepare package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded from temporary location
+** testing if installed package can be loaded from final location
+** testing if installed package keeps a record of temporary installation path
+* DONE (doSNOW)
+
+The downloaded source packages are in
+	‘/tmp/Rtmp0rwfFD/downloaded_packages’
+Warning message:
+package ‘parallel’ is a base package, and should not be updated 
+Serial elapsed (sec): 0.015 
+
+--- Running with 4 cores ---
+Elapsed (sec): 0.037 
+
+--- Running with 8 cores ---
+Elapsed (sec): 0.041 
+
+--- Running with 16 cores ---
+Elapsed (sec): 0.042 
+
+--- Running with 32 cores ---
+Elapsed (sec): 0.065 
+
+--- Running with 32 cores ---
+Elapsed (sec): 0.057 
+Warning messages:
+1: In e$fun(obj, substitute(ex), parent.frame(), e$data) :
+  already exporting variable(s): rs, trig, denom
+2: In e$fun(obj, substitute(ex), parent.frame(), e$data) :
+  already exporting variable(s): rs, trig, denom
+3: In e$fun(obj, substitute(ex), parent.frame(), e$data) :
+  already exporting variable(s): rs, trig, denom
+4: In e$fun(obj, substitute(ex), parent.frame(), e$data) :
+  already exporting variable(s): rs, trig, denom
+5: In e$fun(obj, substitute(ex), parent.frame(), e$data) :
+  already exporting variable(s): rs, trig, denom
+  ncores elapsed_sec speedup_vs_serial
+1      4       0.037         0.4054054
+2      8       0.041         0.3658537
+3     16       0.042         0.3571429
+4     32       0.065         0.2307692
+5     64       0.057         0.2631579
+
+Wrote: runtime_vs_cores.csv and runtime_vs_cores.pdf
+### Ending at: Tue Feb 17 03:14:53 CST 2026 ###
